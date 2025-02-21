@@ -1,277 +1,318 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/pwm.h"
 #include "hardware/adc.h"
 #include "hardware/timer.h"
-#include "src/font.h"
 #include "src/ssd1306.h"
-#include "src/buzzer.h" // Inclui o arquivo do buzzer
+#include "src/buzzer.h"
+#include "projeto_final.pio.h"
 
-// Definições de pinos e parâmetros
-#define PORTA_I2C i2c1
-#define ENDERECO_OLED 0x3C
-#define PINO_I2C_DADOS 14
-#define PINO_I2C_CLK 15
+#define I2C_PORT i2c1
+#define OLED_ADDR 0x3C
+#define SDA_PIN 14
+#define SCL_PIN 15
+#define BUZZER_PIN 10
+#define BUTTON_A_PIN 5
+#define BUTTON_B_PIN 6
+#define LED_PIN 13  // Definindo o pino 13 para o LED
+#define PINO_MATRIZ 7
+#define DEBOUNCE_TIME_MS 200 // Tempo de debouncing em milissegundos
 
-#define LED_PINO_VERDE 11
-#define LED_PINO_AZUL 12
-#define LED_PINO_VERMELHO 13
+#define TEMPO_BASE 1000000 // 1 segundo por clique no botão A
 
-#define BOTAO_PINO_A 5
-#define BOTAO_PINO_B 6
-
-#define JOYSTICK_PINO_X 27
-#define JOYSTICK_PINO_Y 26
-#define PINO_BOTAO 22
-
-#define BUZZER_PINO 10 // Pino do buzzer
-
-#define LARGURA_TELA 128
-#define ALTURA_TELA 64
+// Pinagem do Joystick
+#define JOYSTICK_PINO_X 26
+#define JOYSTICK_PINO_Y 27
+#define JOYSTICK_BOTAO 22
 #define RESOLUCAO_ADC 4096
 #define CENTRO_ADC 2048
-#define LIMITE_JOYSTICK 100
+#define LIMITE_JOYSTICK 1000 // Limite para considerar movimento do joystick
 
-#define TEMPO_TRABALHO 60000000 // 1 minuto em microssegundos
+ssd1306_t display;
+volatile bool buzzer_active = false;
+volatile uint64_t start_time;
+volatile bool button_b_pressed = false;
+volatile int tempo_espera = 0; // Tempo configurado pelo botão A
+volatile bool tempo_definido = false;
 
-// Variáveis globais
-static volatile bool estado_botao_joystick = true;
-static volatile bool estado_led_verde = false;
-static volatile uint32_t ultimo_tempo_botao_a = 0;
-static volatile uint32_t ultimo_tempo_botao_joystick = 0;
-static volatile uint pwm_slice_verde;
-static volatile uint pwm_slice_azul;
-static volatile uint pwm_slice_vermelho;
-static volatile bool linhas_verticais_visiveis = true;
-static volatile bool pwm_ativo = true;
-static volatile uint64_t tempo_inicio = 0; // Tempo de início do ciclo
-static volatile bool buzzer_ativo = false;
-static volatile uint32_t ultimo_tempo_botao_b = 0; // Variável de controle para o botão B
+static uint8_t matriz[25][3];  // Matriz para armazenar o estado de cada LED (R, G, B)
+static PIO pio_matriz;         // Controlador PIO usado para a matriz de LEDs
+static uint maquina;           // Máquina de estado PIO usada para controlar a matriz
+static volatile int numero_atual = 0;
 
+// Variáveis para debouncing
+static uint64_t last_button_a_time = 0;
+static uint64_t last_button_b_time = 0;
 
+// Variáveis para o teste de reflexo
+static int posicao_alvo_x = 2; // Posição inicial do ponto alvo (centro da matriz)
+static int posicao_alvo_y = 2;
+static int posicao_usuario_x = 2; // Posição inicial do ponto do usuário (centro da matriz)
+static int posicao_usuario_y = 2;
+static uint64_t tempo_resposta = 0; // Tempo de resposta do usuário
+static bool teste_em_andamento = false;
 
-// Funções auxiliares
-void configurar_pinos_e_perifericos(ssd1306_t *display);
-void ler_joystick(uint16_t *x, uint16_t *y);
-void mapear_joystick_para_tela(uint16_t x_raw, uint16_t y_raw, float *x, float *y);
-void tratar_pressao_botao(uint pino, uint32_t eventos);
-void emitir_alerta(ssd1306_t *display);
+// Função para piscar o LED
+void piscar_led() {
+    gpio_put(LED_PIN, 1); // Acende o LED
+    sleep_ms(200);        // Mantém o LED aceso por 200ms
+    gpio_put(LED_PIN, 0); // Apaga o LED
+}
 
-// Função principal
-int main() {
-    uint16_t joystick_x_raw, joystick_y_raw;
-    float posicao_x, posicao_y;
-    bool inverter_cores = true;
+// Função para debouncing do botão A
+bool debounce_button_a() {
+    uint64_t current_time = time_us_64();
+    if (current_time - last_button_a_time > DEBOUNCE_TIME_MS * 1000) {
+        last_button_a_time = current_time;
+        return true;
+    }
+    return false;
+}
 
-    ssd1306_t display;
+// Função para debouncing do botão B
+bool debounce_button_b() {
+    uint64_t current_time = time_us_64();
+    if (current_time - last_button_b_time > DEBOUNCE_TIME_MS * 1000) {
+        last_button_b_time = current_time;
+        return true;
+    }
+    return false;
+}
 
-    stdio_init_all(); // Inicializa a comunicação serial para debug
-
-    // Configuração inicial dos pinos e periféricos
-    configurar_pinos_e_perifericos(&display);
-
-    // Configura interrupções para os botões
-    gpio_set_irq_enabled_with_callback(PINO_BOTAO, GPIO_IRQ_EDGE_FALL, true, &tratar_pressao_botao);
-    gpio_set_irq_enabled_with_callback(BOTAO_PINO_A, GPIO_IRQ_EDGE_FALL, true, &tratar_pressao_botao);
-    gpio_set_irq_enabled_with_callback(BOTAO_PINO_B, GPIO_IRQ_EDGE_FALL, true, &tratar_pressao_botao);
-
-    // Inicializa o temporizador
-    tempo_inicio = time_us_64();
-
-    // Loop principal
-    while (true) {
-        // Verifica se o tempo de trabalho acabou
-        if (time_us_64() - tempo_inicio >= TEMPO_TRABALHO) {
-            emitir_alerta(&display); // Emite alerta visual e sonoro
-            tempo_inicio = time_us_64(); // Reinicia o temporizador
-        }
-
-        // Lê os valores do joystick
-        ler_joystick(&joystick_x_raw, &joystick_y_raw);
-        // Mapeia os valores do joystick para a tela
-        mapear_joystick_para_tela(joystick_x_raw, joystick_y_raw, &posicao_x, &posicao_y);
-
-        // Exibe os valores do joystick e o estado do botão no console
-        printf("Joystick X: %u, Y: %u, Botão: %d\n", joystick_x_raw, joystick_y_raw, estado_botao_joystick);
-
-        // Controle dos LEDs com base no joystick
-        if (joystick_x_raw < CENTRO_ADC - LIMITE_JOYSTICK) {
-            pwm_set_gpio_level(LED_PINO_VERMELHO, RESOLUCAO_ADC * (joystick_x_raw / (float)RESOLUCAO_ADC));
-        } else if (joystick_x_raw > CENTRO_ADC + LIMITE_JOYSTICK) {
-            pwm_set_gpio_level(LED_PINO_VERMELHO, RESOLUCAO_ADC * (joystick_x_raw / (float)RESOLUCAO_ADC));
-        } else {
-            pwm_set_gpio_level(LED_PINO_VERMELHO, 0);
-        }
-
-        if (joystick_y_raw < CENTRO_ADC - LIMITE_JOYSTICK) {
-            pwm_set_gpio_level(LED_PINO_AZUL, RESOLUCAO_ADC * (joystick_y_raw / (float)RESOLUCAO_ADC));
-        } else if (joystick_y_raw > CENTRO_ADC + LIMITE_JOYSTICK) {
-            pwm_set_gpio_level(LED_PINO_AZUL, RESOLUCAO_ADC * (joystick_y_raw / (float)RESOLUCAO_ADC));
-        } else {
-            pwm_set_gpio_level(LED_PINO_AZUL, 0);
-        }
-
-        // Atualização do display
-        ssd1306_fill(&display, false); // Limpa o display
-
-        // Desenha as linhas verticais apenas se 'linhas_verticais_visiveis' for true
-        if (linhas_verticais_visiveis) {
-            ssd1306_vline(&display, 0, 0, display.height - 1, true); // Linha na lateral esquerda
-            ssd1306_vline(&display, display.width - 1, 0, display.height - 1, true); // Linha na lateral direita
-        }
-
-        // Desenha um retângulo na posição mapeada do joystick
-        ssd1306_rect(&display, (int)posicao_y, (int)posicao_x, 8, 8, inverter_cores, true);
-        ssd1306_send_data(&display); // Envia os dados para o display
-
-        sleep_ms(100); // Aguarda 100ms para a próxima iteração
+void button_a_callback() {
+    if (!tempo_definido && debounce_button_a()) {
+        tempo_espera += TEMPO_BASE;
+        printf("Tempo ajustado: %d segundos\n", tempo_espera / 1000000);  // Imprime no console
+        piscar_led(); // Pisca o LED para feedback visual
     }
 }
 
-// Função que configura todos os pinos e periféricos de uma vez
-void configurar_pinos_e_perifericos(ssd1306_t *display) {
-    // Configura PWM para LEDs
-    gpio_set_function(LED_PINO_VERDE, GPIO_FUNC_PWM);
-    pwm_slice_verde = pwm_gpio_to_slice_num(LED_PINO_VERDE);
-    pwm_set_wrap(pwm_slice_verde, RESOLUCAO_ADC);
-    pwm_set_enabled(pwm_slice_verde, true);
+void button_b_callback(uint gpio, uint32_t events) {
+    if (gpio == BUTTON_B_PIN && debounce_button_b()) {
+        button_b_pressed = true;
 
-    gpio_set_function(LED_PINO_AZUL, GPIO_FUNC_PWM);
-    pwm_slice_azul = pwm_gpio_to_slice_num(LED_PINO_AZUL);
-    pwm_set_wrap(pwm_slice_azul, RESOLUCAO_ADC);
-    pwm_set_enabled(pwm_slice_azul, true);
+        // Se o tempo ainda não foi definido, confirma o tempo
+        if (!tempo_definido) {
+            tempo_definido = true;
+            start_time = time_us_64();
+            printf("Tempo definido: %d segundos\n", tempo_espera / 1000000);
+        }
 
-    gpio_set_function(LED_PINO_VERMELHO, GPIO_FUNC_PWM);
-    pwm_slice_vermelho = pwm_gpio_to_slice_num(LED_PINO_VERMELHO);
-    pwm_set_wrap(pwm_slice_vermelho, RESOLUCAO_ADC);
-    pwm_set_enabled(pwm_slice_vermelho, true);
+        // Se o alarme está ativo, interrompe o buzzer
+        if (buzzer_active) {
+            buzzer_active = false;
+            pwm_set_gpio_level(BUZZER_PIN, 0);
+        }
+    }
+}
 
-    // Configura os botões
-    gpio_init(BOTAO_PINO_A);
-    gpio_set_dir(BOTAO_PINO_A, GPIO_IN);
-    gpio_pull_up(BOTAO_PINO_A);
+void emitir_alerta() {
+    ssd1306_fill(&display, false);
+    ssd1306_draw_string(&display, "Pausa!", 40, 20);
+    ssd1306_draw_string(&display, "Pressione B", 20, 40);
+    ssd1306_send_data(&display);
 
-    gpio_init(BOTAO_PINO_B);
-    gpio_set_dir(BOTAO_PINO_B, GPIO_IN);
-    gpio_pull_up(BOTAO_PINO_B);
+    buzzer_active = true;
+    beep(BUZZER_PIN, 15000); // Toca o buzzer
 
-    gpio_init(PINO_BOTAO);
-    gpio_set_dir(PINO_BOTAO, GPIO_IN);
-    gpio_pull_up(PINO_BOTAO);
+    while (!button_b_pressed) {
+        sleep_ms(100);
+    }
 
-    // Configura o buzzer
-    pwm_init_buzzer(BUZZER_PINO); // Inicializa o buzzer com PWM
+    start_time = time_us_64();
+    button_b_pressed = false;
+}
 
-    // Configura comunicação I2C
-    i2c_init(PORTA_I2C, 400 * 1000); // Inicializa I2C com 400kHz
-    gpio_set_function(PINO_I2C_DADOS, GPIO_FUNC_I2C);
-    gpio_set_function(PINO_I2C_CLK, GPIO_FUNC_I2C);
-    gpio_pull_up(PINO_I2C_DADOS);
-    gpio_pull_up(PINO_I2C_CLK);
+void inicializar_matriz(uint pino) {
+    uint offset = pio_add_program(pio0, &matriz_led_program); // Adiciona o programa PIO
+    pio_matriz = pio0; // Usa o controlador PIO0
 
-    // Configura o display OLED
-    ssd1306_init(display, LARGURA_TELA, ALTURA_TELA, false, ENDERECO_OLED, PORTA_I2C);
-    ssd1306_config(display);
-    ssd1306_send_data(display);
-    ssd1306_fill(display, false);
-    ssd1306_send_data(display);
+    maquina = pio_claim_unused_sm(pio_matriz, false); // Obtém uma máquina de estado livre
+    if (maquina < 0) {
+        pio_matriz = pio1; // Se não houver máquinas livres no PIO0, tenta no PIO1
+        maquina = pio_claim_unused_sm(pio_matriz, true);
+    }
 
-    // Configura o ADC e o joystick
+    // Inicializa o programa PIO na máquina de estado
+    matriz_led_program_init(pio_matriz, maquina, offset, pino, 800000.f);
+}
+
+// Função para limpar a matriz (todos os LEDs apagados)
+void limpar_matriz() {
+    for (int i = 0; i < 25; i++) {
+        matriz[i][0] = 0; // Vermelho
+        matriz[i][1] = 0; // Verde
+        matriz[i][2] = 0; // Azul
+    }
+}
+
+// Função para enviar os dados da matriz para a máquina de estado PIO
+void atualizar_matriz() {
+    for (int i = 0; i < 25; i++) {
+        pio_sm_put_blocking(pio_matriz, maquina, matriz[i][1]); // Verde
+        pio_sm_put_blocking(pio_matriz, maquina, matriz[i][0]); // Vermelho
+        pio_sm_put_blocking(pio_matriz, maquina, matriz[i][2]); // Azul
+    }
+}
+
+// Função para desenhar um ponto na matriz de LEDs
+void desenhar_ponto(int x, int y, int cor) {
+    int indice = y * 5 + x;
+    if (cor == 0) { // Vermelho
+        matriz[indice][0] = 15;
+    } else if (cor == 1) { // Azul
+        matriz[indice][2] = 15;
+    }
+}
+
+// Função para mover o ponto alvo aleatoriamente
+void mover_ponto_alvo() {
+    posicao_alvo_x = rand() % 5;
+    posicao_alvo_y = rand() % 5;
+}
+
+// Função para ler o joystick
+void ler_joystick(int *x, int *y) {
+    adc_select_input(1); // Seleciona o eixo X
+    int x_raw = adc_read(); // Lê o valor do eixo X
+    adc_select_input(0); // Seleciona o eixo Y
+    int y_raw = adc_read(); // Lê o valor do eixo Y
+
+    // Mapeia os valores do joystick para movimento na matriz
+    if (x_raw < CENTRO_ADC - LIMITE_JOYSTICK) *x = 1; // Movimento para a direita
+    else if (x_raw > CENTRO_ADC + LIMITE_JOYSTICK) *x = -1; // Movimento para a esquerda
+    else *x = 0; // Sem movimento
+
+    if (y_raw < CENTRO_ADC - LIMITE_JOYSTICK) *y = 1; // Movimento para cima
+    else if (y_raw > CENTRO_ADC + LIMITE_JOYSTICK) *y = -1; // Movimento para baixo
+    else *y = 0; // Sem movimento
+}
+
+// Função principal do teste de reflexo
+void teste_reflexo() {
+    teste_em_andamento = true;
+    mover_ponto_alvo(); // Move o ponto alvo para uma posição aleatória
+
+    uint64_t inicio_teste = time_us_64();
+    while (true) {
+        // Lê o joystick
+        int movimento_x, movimento_y;
+        ler_joystick(&movimento_x, &movimento_y);
+
+        // Atualiza a posição do usuário com base no joystick
+        posicao_usuario_x += movimento_x;
+        posicao_usuario_y += movimento_y;
+
+        // Limita a posição do usuário aos limites da matriz
+        if (posicao_usuario_x < 0) posicao_usuario_x = 0;
+        if (posicao_usuario_x > 4) posicao_usuario_x = 4;
+        if (posicao_usuario_y < 0) posicao_usuario_y = 0;
+        if (posicao_usuario_y > 4) posicao_usuario_y = 4;
+
+        // Limpa a matriz e desenha os pontos
+        limpar_matriz();
+        desenhar_ponto(posicao_alvo_x, posicao_alvo_y, 0); // Desenha o ponto alvo em vermelho
+        desenhar_ponto(posicao_usuario_x, posicao_usuario_y, 1); // Desenha o ponto do usuário em azul
+        atualizar_matriz(); // Atualiza a matriz com os novos desenhos
+
+        // Verifica se o usuário alcançou o ponto alvo
+        if (posicao_usuario_x == posicao_alvo_x && posicao_usuario_y == posicao_alvo_y) {
+            tempo_resposta = time_us_64() - inicio_teste;
+            printf("Tempo de resposta: %d ms\n", (int)(tempo_resposta / 1000));
+            break;
+        }
+
+        sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
+    }
+
+    teste_em_andamento = false;
+}
+
+int main() {
+    stdio_init_all();
+    i2c_init(I2C_PORT, 400 * 1000);
+    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(SDA_PIN);
+    gpio_pull_up(SCL_PIN);
+
+    // Inicializa o ADC para o joystick
     adc_init();
     adc_gpio_init(JOYSTICK_PINO_X);
     adc_gpio_init(JOYSTICK_PINO_Y);
-}
 
-// Lê os valores do joystick
-void ler_joystick(uint16_t *x, uint16_t *y) {
-    adc_select_input(1); // Seleciona o eixo X
-    *x = adc_read(); // Lê o valor do eixo X
-    adc_select_input(0); // Seleciona o eixo Y
-    *y = adc_read(); // Lê o valor do eixo Y
-}
+    inicializar_matriz(PINO_MATRIZ);
+    limpar_matriz();
 
-// Mapeia os valores do joystick para a tela
-void mapear_joystick_para_tela(uint16_t x_raw, uint16_t y_raw, float *x, float *y) {
-    if (x_raw < 0) {
-        *x = 0;
-    } else if (x_raw > RESOLUCAO_ADC) {
-        *x = LARGURA_TELA;
-    } else {
-        *x = LARGURA_TELA * (float)x_raw / RESOLUCAO_ADC;
-    }
+    ssd1306_init(&display, 128, 64, false, OLED_ADDR, I2C_PORT);
+    ssd1306_config(&display);
+    ssd1306_fill(&display, false);
+    ssd1306_send_data(&display);
 
-    if (y_raw < 0) {
-        *y = 0;
-    } else if (y_raw > RESOLUCAO_ADC) {
-        *y = ALTURA_TELA;
-    } else {
-        *y = ALTURA_TELA * (1 - (float)y_raw / RESOLUCAO_ADC);
-    }
+    gpio_init(BUTTON_A_PIN);
+    gpio_set_dir(BUTTON_A_PIN, GPIO_IN);
+    gpio_pull_up(BUTTON_A_PIN);
 
-    // Limite para que o objeto não saia da tela
-    if (*x > LARGURA_TELA - 8) {
-        *x = LARGURA_TELA - 8;
-    }
-    if (*y > ALTURA_TELA - 8) {
-        *y = ALTURA_TELA - 8;
-    }
-}
+    gpio_init(BUTTON_B_PIN);
+    gpio_set_dir(BUTTON_B_PIN, GPIO_IN);
+    gpio_pull_up(BUTTON_B_PIN);
+    gpio_set_irq_enabled_with_callback(BUTTON_B_PIN, GPIO_IRQ_EDGE_FALL, true, &button_b_callback);
 
-// Manipula as interrupções dos botões
-void tratar_pressao_botao(uint pino, uint32_t eventos) {
-    uint32_t tempo_atual = to_us_since_boot(get_absolute_time());
+    pwm_init_buzzer(BUZZER_PIN);
 
-    if (pino == PINO_BOTAO && (tempo_atual - ultimo_tempo_botao_joystick > 250000)) {
-        ultimo_tempo_botao_joystick = tempo_atual;
-        estado_botao_joystick = !estado_botao_joystick;
+    // Inicializar GPIO 13 para o LED
+    gpio_init(LED_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
+    gpio_put(LED_PIN, 0);  // Garantir que o LED esteja apagado inicialmente
 
-        if (!estado_led_verde) {
-            pwm_set_gpio_level(LED_PINO_VERDE, CENTRO_ADC);
-            estado_led_verde = true;
-        } else {
-            pwm_set_gpio_level(LED_PINO_VERDE, 0);
-            estado_led_verde = false;
+    ssd1306_fill(&display, false);
+    ssd1306_draw_string(&display, "Pressione A p/ setar", 5, 10);
+    ssd1306_draw_string(&display, "o tempo do alarme", 10, 30);
+    ssd1306_send_data(&display);
+
+    // Loop principal
+    while (true) {
+        // Modo de configuração do tempo
+        if (!tempo_definido) {
+            // Detecta o clique do botão A
+            if (gpio_get(BUTTON_A_PIN) == 0) { // Verifica se o botão A está pressionado (GND)
+                button_a_callback();
+            }
+
+            // Atualiza o display com o tempo selecionado
+            ssd1306_fill(&display, false);
+            char msg[20];
+            snprintf(msg, sizeof(msg), "Tempo: %d s", tempo_espera / 1000000);
+            ssd1306_draw_string(&display, "Config Alarme", 10, 10);
+            ssd1306_draw_string(&display, msg, 20, 30);
+            ssd1306_send_data(&display);
+
+            // Se o botão B for pressionado, confirma o tempo e inicia o contador
+            if (button_b_pressed) {
+                tempo_definido = true;
+                start_time = time_us_64();
+                button_b_pressed = false;
+
+                // Exibe a mensagem "Contador iniciado!"
+                ssd1306_fill(&display, false);
+                ssd1306_draw_string(&display, "Contador", 40, 20);
+                ssd1306_draw_string(&display, "iniciado!", 30, 40);
+                ssd1306_send_data(&display);
+                sleep_ms(2000); // Mostra a mensagem por 2 segundos
+            }
+        }
+        // Modo de contagem do tempo
+        else {
+            if (time_us_64() - start_time >= tempo_espera) {
+                emitir_alerta(); // Toca o alarme
+                teste_reflexo(); // Inicia o teste de reflexo
+                tempo_definido = false; // Reseta o tempo para permitir nova configuração
+                tempo_espera = 0; // Reseta o tempo de espera
+            }
         }
 
-        linhas_verticais_visiveis = !linhas_verticais_visiveis;
-    } else if (pino == BOTAO_PINO_B && (tempo_atual - ultimo_tempo_botao_b > 250000)) {
-        ultimo_tempo_botao_b = tempo_atual;
-
-        // Se o buzzer está ativo, interrompe o som
-        if (buzzer_ativo) {
-            buzzer_ativo = false;
-            // Aqui você pode adicionar código para interromper o buzzer, se necessário
-            // Por exemplo, se o buzzer estiver usando PWM, você pode desativá-lo.
-            pwm_set_gpio_level(BUZZER_PINO, 0); // Para o som imediatamente
-        }
-    } else if (pino == BOTAO_PINO_A && (tempo_atual - ultimo_tempo_botao_a > 250000)) {
-        ultimo_tempo_botao_a = tempo_atual;
-
-        if (!pwm_ativo) {
-            pwm_set_gpio_level(LED_PINO_VERDE, 0);
-            pwm_set_gpio_level(LED_PINO_AZUL, 0);
-            pwm_set_gpio_level(LED_PINO_VERMELHO, 0);
-        }
-
-        pwm_set_enabled(pwm_slice_verde, !pwm_ativo);
-        pwm_set_enabled(pwm_slice_azul, !pwm_ativo);
-        pwm_set_enabled(pwm_slice_vermelho, !pwm_ativo);
-        pwm_ativo = !pwm_ativo;
+        sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
     }
-}
-
-
-// Emite alerta visual e sonoro
-void emitir_alerta(ssd1306_t *display) {
-    // Se o buzzer não estiver ativo, emite um beep
-    if (!buzzer_ativo) {
-        buzzer_ativo = true; // Marca que o buzzer está ativo
-        beep(BUZZER_PINO, 15000); // Emite um beep de 2 segundos
-    }
-
-    // Exibe mensagem no OLED
-    ssd1306_fill(display, false);
-    ssd1306_draw_string(display, "Hora de descansar!", 10, 20 );
-    ssd1306_send_data(display);
 }
