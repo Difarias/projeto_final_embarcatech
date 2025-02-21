@@ -185,7 +185,7 @@ void ler_joystick(int *x, int *y) {
     else if (x_raw > CENTRO_ADC + LIMITE_JOYSTICK) *x = -1; // Movimento para a esquerda
     else *x = 0; // Sem movimento
 
-    if (y_raw < CENTRO_ADC - LIMITE_JOYSTICK) *y = 1; // Movimento para cima
+    if (y_raw < CENTRO_ADC - LIMITE_JOYSTICK) *y = -1; // Movimento para cima
     else if (y_raw > CENTRO_ADC + LIMITE_JOYSTICK) *y = -1; // Movimento para baixo
     else *y = 0; // Sem movimento
 }
