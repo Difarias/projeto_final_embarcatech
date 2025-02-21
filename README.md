@@ -1,14 +1,9 @@
-# Tarefa 4 Unidade 4 - Trabalhando com Interrupções
+# Porjeto Final - Embarcatech
 
 ## Descrição do Projeto
 
-Este projeto tem como objetivo desenvolver um sistema utilizando o microcontrolador RP2040 (Raspberry Pi Pico) e a placa BitDogLab. O sistema é responsável pelo controle de LEDs e botões com interrupções, manipulando uma matriz de LEDs e LEDs RGB de maneira interativa.
-
 O sistema possui a seguinte funcionalidade:
-- Um **LED vermelho** do LED RGB pisca 5 vezes por segundo.
-- O **Botão A** incrementa o número exibido na matriz de LEDs, e o número ficará **vermelho**.
-- O **Botão B** decrementa o número exibido na matriz de LEDs, e o número ficará **azul**.
-- **Interrupções** foram utilizadas para o controle dos botões, garantindo resposta imediata às ações do usuário.
+- 
 
 ## Execução
 
@@ -17,7 +12,7 @@ O sistema possui a seguinte funcionalidade:
 1. **Usando o Wokwi (Versão VS Code):**
    - Clone o repositório do projeto:
      ```sh
-     git clone https://github.com/Difarias/interrupcoes_embarcatechU4_C4
+     git clone 
      ```
    - Abra o projeto no **VS Code**.
    - Gere a pasta de build
@@ -39,9 +34,8 @@ O sistema possui a seguinte funcionalidade:
 
 ## O que você verá
 
-- O LED vermelho pisca 5 vezes por segundo.
-- Ao pressionar o Botão A, o número exibido na matriz de LEDs será incrementado (na cor vermelha).
-- Ao pressionar o Botão B, o número exibido na matriz será decrementado (na cor azul).
+-
+
 
 ## Demonstração - Vídeo no YouTube
 
