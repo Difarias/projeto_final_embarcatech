@@ -57,6 +57,7 @@ static bool teste_em_andamento = false;
 // Função para exibir a quantidade de acertos no display
 void exibir_acertos(int acertos) {
     ssd1306_fill(&display, false); // Limpa o display
+    ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
     char msg[20];
     snprintf(msg, sizeof(msg), "Acertos: %d", acertos);
     ssd1306_draw_string(&display, msg, 20, 20); // Exibe a mensagem no display
@@ -105,6 +106,7 @@ void button_b_callback(uint gpio, uint32_t events) {
         // Se o tempo ainda não foi definido, confirma o tempo
         if (!tempo_definido) {
             ssd1306_fill(&display, false);
+            ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
             ssd1306_draw_string(&display, "Definido", 40, 20);
             ssd1306_draw_string(&display, "Aguarde", 20, 40);
             ssd1306_send_data(&display);
@@ -120,6 +122,7 @@ void button_b_callback(uint gpio, uint32_t events) {
 
             // Exibe a mensagem no OLED
             ssd1306_fill(&display, false);
+            ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
             ssd1306_draw_string(&display, "Alarme", 40, 20);
             ssd1306_draw_string(&display, "desligado", 20, 35);
             ssd1306_draw_string(&display, "Aguarde", 30, 50);
@@ -130,6 +133,7 @@ void button_b_callback(uint gpio, uint32_t events) {
 
 void emitir_alerta() {
     ssd1306_fill(&display, false);
+    ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
     ssd1306_draw_string(&display, "Pausa!", 40, 20);
     ssd1306_draw_string(&display, "Pressione B", 20, 40);
     ssd1306_send_data(&display);
@@ -168,17 +172,24 @@ void limpar_matriz() {
     }
 }
 
-// Função para enviar os dados da matriz para a máquina de estado PIO
-void atualizar_matriz() {
-    for (int i = 0; i < 25; i++) {
-        pio_sm_put_blocking(pio_matriz, maquina, matriz[i][1]); // Verde
-        pio_sm_put_blocking(pio_matriz, maquina, matriz[i][0]); // Vermelho
-        pio_sm_put_blocking(pio_matriz, maquina, matriz[i][2]); // Azul
+// Função para enviar os dados de uma linha da matriz para a máquina de estado PIO
+void atualizar_linha(int linha) {
+    for (int coluna = 0; coluna < 5; coluna++) {
+        int indice = linha * 5 + coluna; // Calcula o índice do LED na matriz
+        pio_sm_put_blocking(pio_matriz, maquina, matriz[indice][1]); // Verde
+        pio_sm_put_blocking(pio_matriz, maquina, matriz[indice][0]); // Vermelho
+        pio_sm_put_blocking(pio_matriz, maquina, matriz[indice][2]); // Azul
     }
 }
 
-// Função para desenhar um ponto na matriz de LEDs
-void desenhar_ponto(int x, int y, int cor) {
+void atualizar_matriz() {
+    for (int linha = 0; linha < 5; linha++) {
+        atualizar_linha(linha); // Atualiza uma linha inteira de cada vez
+    }
+}
+
+// Função para desenhar um ponto na matriz de LEDs com controle de brilho
+void desenhar_ponto(int x, int y, int cor, int intensidade) {
     // Ajusta o eixo Y para corresponder à organização física da matriz
     y = 4 - y; // Inverte o eixo Y (0 → 4, 1 → 3, etc.)
 
@@ -187,19 +198,19 @@ void desenhar_ponto(int x, int y, int cor) {
     if (y % 2 == 0) {
         // Linhas pares: LEDs estão na ordem normal (0 → 4)
         indice = y * 5 + x;
-        printf("1- x: %d, y: %d, indice: %d\n", x, y, indice);
     } else {
         // Linhas ímpares: LEDs estão na ordem inversa (4 → 0)
-        printf("2- x: %d, y: %d, indice: %d\n", x, y, indice);
         indice = y * 5 + (4 - x);
     }
 
     // Verifica se o índice está dentro dos limites da matriz
     if (indice >= 0 && indice < 25) {
         if (cor == 0) { // Vermelho
-            matriz[indice][0] = 15;
-        } else if (cor == 1) { // Azul
-            matriz[indice][2] = 15;
+            matriz[indice][0] = intensidade;
+        } else if (cor == 1) { // Verde
+            matriz[indice][1] = intensidade;
+        } else if (cor == 2) { // Azul
+            matriz[indice][2] = intensidade;
         }
     } else {
         // Depuração: Imprime um erro se o índice estiver fora dos limites
@@ -207,23 +218,142 @@ void desenhar_ponto(int x, int y, int cor) {
     }
 }
 
-// Função para animação final: acende os LEDs um a um na cor amarela
+// Função para exibir uma animação de meditação na matriz de LEDs
+// Função para exibir uma animação suave de ondas na matriz de LEDs
+void meditacao_matriz() {
+    int intensidade_maxima = 5; // Intensidade máxima (2% de brilho, ajuste conforme necessário)
+    int intensidade = 0;         // Intensidade atual
+    int passo = 1;               // Passo de incremento/decremento da intensidade
+    int tempo_respiracao = 4000; // Tempo total da respiração (4 segundos)
+    int tempo_por_passo = tempo_respiracao / (intensidade_maxima / passo);
+
+    for (int ciclo = 0; ciclo < 3; ciclo++) { // Repete a animação 3 vezes
+        // Exibe "Inspire..." no display
+        ssd1306_fill(&display, false);
+        ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+        ssd1306_draw_string(&display, "Inspire...", 20, 20);
+        ssd1306_send_data(&display);
+
+        // Expansão (inspiração)
+        for (intensidade = 0; intensidade <= intensidade_maxima; intensidade += passo) {
+            for (int i = 0; i < 25; i++) {
+                matriz[i][0] = intensidade; // Vermelho
+                matriz[i][1] = intensidade; // Verde
+                matriz[i][2] = 0;           // Azul (desligado)
+            }
+            atualizar_matriz(); // Atualiza a matriz com a nova intensidade
+            sleep_ms(tempo_por_passo); // Aguarda o tempo por passo
+        }
+
+        // Exibe "Segure..." no display
+        ssd1306_fill(&display, false);
+        ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+        ssd1306_draw_string(&display, "Segure...", 25, 20);
+        ssd1306_send_data(&display);
+
+        // Pausa no topo (segurar a respiração)
+        sleep_ms(1000); // Aguarda 1 segundo
+
+        // Exibe "Expire..." no display
+        ssd1306_fill(&display, false);
+        ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+        ssd1306_draw_string(&display, "Expire...", 25, 20);
+        ssd1306_send_data(&display);
+
+        // Contração (expiração)
+        for (intensidade = intensidade_maxima; intensidade >= 0; intensidade -= passo) {
+            for (int i = 0; i < 25; i++) {
+                matriz[i][0] = intensidade; // Vermelho
+                matriz[i][1] = intensidade; // Verde
+                matriz[i][2] = 0;          // Azul (desligado)
+            }
+            atualizar_matriz(); // Atualiza a matriz com a nova intensidade
+            sleep_ms(tempo_por_passo); // Aguarda o tempo por passo
+        }
+
+        // Exibe "Relaxe..." no display
+        ssd1306_fill(&display, false);
+        ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+        ssd1306_draw_string(&display, "Relaxe...", 25, 20);
+        ssd1306_send_data(&display);
+
+        // Pausa no fundo (segurar a respiração)
+        sleep_ms(1000); // Aguarda 1 segundo
+    }
+
+    // Apaga a matriz após a animação
+    limpar_matriz();
+    atualizar_matriz();
+
+    // Exibe "Fim da meditacao" no display
+    ssd1306_fill(&display, false);
+    ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+    ssd1306_draw_string(&display, "Relaxamento", 20, 20);
+    ssd1306_draw_string(&display, "Feito", 20, 35);
+    ssd1306_send_data(&display);
+    sleep_ms(2000); // Mostra a mensagem por 2 segundos
+}
+
+// Modificação na função descansar_olhos para chamar a meditação
+void descansar_olhos() {
+    // Apaga todos os LEDs da matriz
+    limpar_matriz();
+    atualizar_matriz();
+
+    int tempo_restante = 20; // Tempo inicial de 20 segundos
+
+    while (tempo_restante > 0) {
+        // Atualiza o display com o tempo restante
+        ssd1306_fill(&display, false);
+        ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+        char msg[20];
+        snprintf(msg, sizeof(msg), "Feche os olhos: %d s", tempo_restante);
+        ssd1306_draw_string(&display, msg, 7, 25);
+        ssd1306_send_data(&display);
+
+        sleep_ms(1000); // Aguarda 1 segundo
+        tempo_restante--; // Decrementa o tempo restante
+    }
+
+    // Beep simples para alertar o fim do tempo
+    beep(BUZZER_PIN, 500); // Toca um beep de 500ms
+    sleep_ms(500); // Aguarda 500ms para evitar repetição
+    pwm_set_gpio_level(BUZZER_PIN, 0); // Desliga o buzzer
+
+    // Exibe a mensagem final e retorna ao estado inicial
+    ssd1306_fill(&display, false);
+    ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+    ssd1306_draw_string(&display, "Pausa", 15, 20);
+    ssd1306_draw_string(&display, "Concluida", 10, 35);
+    ssd1306_send_data(&display);
+    sleep_ms(2000); // Mostra a mensagem por 2 segundos
+
+    // Chama a função de meditação
+    meditacao_matriz();
+}
+
+// Função para animação final: acende os LEDs de uma linha por vez na cor amarela
 void animacao_final() {
     limpar_matriz(); // Apaga todos os LEDs da matriz
 
-    for (int i = 0; i < 25; i++) { // Itera sobre todos os LEDs da matriz
-        // Acende o LED atual na cor amarela (vermelho + verde)
-        matriz[i][0] = 15; // Vermelho
-        matriz[i][1] = 15; // Verde
-        matriz[i][2] = 0;  // Azul (desligado)
+    for (int linha = 0; linha < 5; linha++) { // Itera sobre cada linha
+        for (int coluna = 0; coluna < 5; coluna++) { // Itera sobre cada coluna da linha
+            int indice = linha * 5 + coluna; // Calcula o índice do LED na matriz
+            matriz[indice][0] = 128; // Vermelho (50% de brilho)
+            matriz[indice][1] = 128; // Verde (50% de brilho)
+            matriz[indice][2] = 0;  // Azul (desligado)
+        }
 
-        atualizar_matriz(); // Atualiza a matriz com o novo estado
+        atualizar_matriz(); // Atualiza a matriz com a nova linha acesa
         beep(BUZZER_PIN, 500); // Toca o buzzer por 500ms
-        sleep_ms(500); // Aguarda 500ms antes de acender o próximo LED
+        sleep_ms(500); // Aguarda 500ms antes de acender a próxima linha
     }
 
     // Desliga o buzzer após a animação
     pwm_set_gpio_level(BUZZER_PIN, 0);
+
+    // Chama a função para descansar os olhos
+    descansar_olhos();
 }
 
 // Função para ler o joystick
@@ -265,6 +395,13 @@ void teste_reflexo() {
     int acertos = 0; // Contador de acertos
     mover_ponto_alvo(); // Move o ponto alvo para uma posição aleatória
 
+    // Exibe a nova mensagem antes de iniciar o teste de reflexo
+    ssd1306_fill(&display, false);
+    ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+    ssd1306_draw_string(&display, "Ache o", 40, 20);
+    ssd1306_draw_string(&display, "ponto vermelho", 10, 35);
+    ssd1306_send_data(&display);
+
     uint64_t inicio_teste = time_us_64();
     while (acertos < 5) { // O teste termina após 5 acertos
         // Lê o joystick
@@ -295,8 +432,8 @@ void teste_reflexo() {
 
         // Limpa a matriz e desenha os pontos
         limpar_matriz();
-        desenhar_ponto(posicao_alvo_x, posicao_alvo_y, 0); // Desenha o ponto alvo em vermelho
-        desenhar_ponto(posicao_usuario_x, posicao_usuario_y, 1); // Desenha o ponto do usuário em azul
+        desenhar_ponto(posicao_alvo_x, posicao_alvo_y, 0, 128); // Desenha o ponto alvo em vermelho (50% de brilho)
+        desenhar_ponto(posicao_usuario_x, posicao_usuario_y, 1, 128); // Desenha o ponto do usuário em azul (50% de brilho)
         atualizar_matriz(); // Atualiza a matriz com os novos desenhos
 
         sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
@@ -349,6 +486,7 @@ int main() {
     gpio_put(LED_PIN, 0);  // Garantir que o LED esteja apagado inicialmente
 
     ssd1306_fill(&display, false);
+    ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
     ssd1306_draw_string(&display, "Pressione A", 10, 10);
     ssd1306_draw_string(&display, "config alarme", 10, 30);
     ssd1306_send_data(&display);
@@ -374,6 +512,7 @@ int main() {
 
             // Atualiza o display com o tempo selecionado
             ssd1306_fill(&display, false);
+            ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
             char msg[20];
             snprintf(msg, sizeof(msg), "Tempo: %d s", tempo_espera / 1000000);
             ssd1306_draw_string(&display, "Config Alarme", 10, 10);
@@ -388,6 +527,7 @@ int main() {
 
                 // Exibe a mensagem "Contador iniciado!"
                 ssd1306_fill(&display, false);
+                ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
                 ssd1306_draw_string(&display, "Contador", 40, 20);
                 ssd1306_draw_string(&display, "iniciado!", 30, 40);
                 ssd1306_send_data(&display);
