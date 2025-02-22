@@ -23,12 +23,12 @@
 #define TEMPO_BASE 1000000 // 1 segundo por clique no botão A
 
 // Pinagem do Joystick
-#define JOYSTICK_PINO_X 26
-#define JOYSTICK_PINO_Y 27
+#define JOYSTICK_PINO_X 27
+#define JOYSTICK_PINO_Y 26
 #define JOYSTICK_BOTAO 22
 #define RESOLUCAO_ADC 4096
 #define CENTRO_ADC 2048
-#define LIMITE_JOYSTICK 1000 // Limite para considerar movimento do joystick
+#define LIMITE_JOYSTICK 100 // Limite para considerar movimento do joystick
 
 ssd1306_t display;
 volatile bool buzzer_active = false;
@@ -159,38 +159,68 @@ void atualizar_matriz() {
 
 // Função para desenhar um ponto na matriz de LEDs
 void desenhar_ponto(int x, int y, int cor) {
-    int indice = y * 5 + x;
-    if (cor == 0) { // Vermelho
-        matriz[indice][0] = 15;
-    } else if (cor == 1) { // Azul
-        matriz[indice][2] = 15;
+    // Ajusta o eixo Y para corresponder à organização física da matriz
+    y = 4 - y; // Inverte o eixo Y (0 → 4, 1 → 3, etc.)
+
+    // Calcula o índice na matriz
+    int indice;
+    if (y % 2 == 0) {
+        // Linhas pares: LEDs estão na ordem normal (0 → 4)
+        indice = y * 5 + x;
+        printf("1- x: %d, y: %d, indice: %d\n", x, y, indice);
+    } else {
+        // Linhas ímpares: LEDs estão na ordem inversa (4 → 0)
+        printf("2- x: %d, y: %d, indice: %d\n", x, y, indice);
+        indice = y * 5 + (4 - x);
     }
+
+    // Verifica se o índice está dentro dos limites da matriz
+    if (indice >= 0 && indice < 25) {
+        if (cor == 0) { // Vermelho
+            matriz[indice][0] = 15;
+        } else if (cor == 1) { // Azul
+            matriz[indice][2] = 15;
+        }
+    } else {
+        // Depuração: Imprime um erro se o índice estiver fora dos limites
+        printf("Erro: Índice fora dos limites! x: %d, y: %d, indice: %d\n", x, y, indice);
+    }
+}
+
+// Função para ler o joystick
+void ler_joystick(uint16_t *x, uint16_t *y) {
+    adc_select_input(1); // Seleciona o eixo X (pino 27)
+    *x = adc_read(); // Lê o valor do eixo X
+    adc_select_input(0); // Seleciona o eixo Y (pino 26)
+    *y = adc_read(); // Lê o valor do eixo Y
 }
 
 // Função para mover o ponto alvo aleatoriamente
 void mover_ponto_alvo() {
-    posicao_alvo_x = rand() % 5;
-    posicao_alvo_y = rand() % 5;
+    posicao_alvo_x = rand() % 5; // Gera um número aleatório entre 0 e 4
+    posicao_alvo_y = rand() % 5; // Gera um número aleatório entre 0 e 4
 }
 
-// Função para ler o joystick
-void ler_joystick(int *x, int *y) {
-    adc_select_input(1); // Seleciona o eixo X
-    int x_raw = adc_read(); // Lê o valor do eixo X
-    adc_select_input(0); // Seleciona o eixo Y
-    int y_raw = adc_read(); // Lê o valor do eixo Y
+void mapear_joystick_para_matriz(uint16_t x_raw, uint16_t y_raw, int *movimento_x, int *movimento_y) {
+    // Mapeia o eixo X (pino 27)
+    if (x_raw < CENTRO_ADC - LIMITE_JOYSTICK) {
+        *movimento_x = 1; // Movimento para a esquerda
+    } else if (x_raw > CENTRO_ADC + LIMITE_JOYSTICK) {
+        *movimento_x = -1; // Movimento para a direita
+    } else {
+        *movimento_x = 0; // Sem movimento
+    }
 
-    // Mapeia os valores do joystick para movimento na matriz
-    if (x_raw < CENTRO_ADC - LIMITE_JOYSTICK) *x = 1; // Movimento para a direita
-    else if (x_raw > CENTRO_ADC + LIMITE_JOYSTICK) *x = -1; // Movimento para a esquerda
-    else *x = 0; // Sem movimento
-
-    if (y_raw < CENTRO_ADC - LIMITE_JOYSTICK) *y = -1; // Movimento para cima
-    else if (y_raw > CENTRO_ADC + LIMITE_JOYSTICK) *y = -1; // Movimento para baixo
-    else *y = 0; // Sem movimento
+    // Mapeia o eixo Y (pino 26)
+    if (y_raw < CENTRO_ADC - LIMITE_JOYSTICK) {
+        *movimento_y = 1; // Movimento para cima (eixo Y invertido)
+    } else if (y_raw > CENTRO_ADC + LIMITE_JOYSTICK) {
+        *movimento_y = -1; // Movimento para baixo (eixo Y invertido)
+    } else {
+        *movimento_y = 0; // Sem movimento
+    }
 }
 
-// Função principal do teste de reflexo
 void teste_reflexo() {
     teste_em_andamento = true;
     mover_ponto_alvo(); // Move o ponto alvo para uma posição aleatória
@@ -198,12 +228,17 @@ void teste_reflexo() {
     uint64_t inicio_teste = time_us_64();
     while (true) {
         // Lê o joystick
+        uint16_t x_raw, y_raw;
+        ler_joystick(&x_raw, &y_raw);
+
+        // Mapeia os valores do joystick para a matriz
         int movimento_x, movimento_y;
-        ler_joystick(&movimento_x, &movimento_y);
+        mapear_joystick_para_matriz(x_raw, y_raw, &movimento_x, &movimento_y);
 
         // Atualiza a posição do usuário com base no joystick
+        printf("X: %d Y: %d",movimento_x,movimento_y);
         posicao_usuario_x += movimento_x;
-        posicao_usuario_y += movimento_y;
+        posicao_usuario_y += movimento_y; // Corrigindo a inversão do eixo Y
 
         // Limita a posição do usuário aos limites da matriz
         if (posicao_usuario_x < 0) posicao_usuario_x = 0;
@@ -213,22 +248,18 @@ void teste_reflexo() {
 
         // Limpa a matriz e desenha os pontos
         limpar_matriz();
+        
         desenhar_ponto(posicao_alvo_x, posicao_alvo_y, 0); // Desenha o ponto alvo em vermelho
         desenhar_ponto(posicao_usuario_x, posicao_usuario_y, 1); // Desenha o ponto do usuário em azul
         atualizar_matriz(); // Atualiza a matriz com os novos desenhos
-
-        // Verifica se o usuário alcançou o ponto alvo
-        if (posicao_usuario_x == posicao_alvo_x && posicao_usuario_y == posicao_alvo_y) {
-            tempo_resposta = time_us_64() - inicio_teste;
-            printf("Tempo de resposta: %d ms\n", (int)(tempo_resposta / 1000));
-            break;
-        }
 
         sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
     }
 
     teste_em_andamento = false;
 }
+
+
 
 int main() {
     stdio_init_all();
