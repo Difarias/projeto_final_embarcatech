@@ -54,6 +54,15 @@ static int posicao_usuario_y = 2;
 static uint64_t tempo_resposta = 0; // Tempo de resposta do usuário
 static bool teste_em_andamento = false;
 
+// Função para exibir a quantidade de acertos no display
+void exibir_acertos(int acertos) {
+    ssd1306_fill(&display, false); // Limpa o display
+    char msg[20];
+    snprintf(msg, sizeof(msg), "Acertos: %d", acertos);
+    ssd1306_draw_string(&display, msg, 20, 20); // Exibe a mensagem no display
+    ssd1306_send_data(&display);
+}
+
 // Função para piscar o LED
 void piscar_led() {
     gpio_put(LED_PIN, 1); // Acende o LED
@@ -95,6 +104,10 @@ void button_b_callback(uint gpio, uint32_t events) {
 
         // Se o tempo ainda não foi definido, confirma o tempo
         if (!tempo_definido) {
+            ssd1306_fill(&display, false);
+            ssd1306_draw_string(&display, "Definido", 40, 20);
+            ssd1306_draw_string(&display, "Aguarde", 20, 40);
+            ssd1306_send_data(&display);
             tempo_definido = true;
             start_time = time_us_64();
             printf("Tempo definido: %d segundos\n", tempo_espera / 1000000);
@@ -104,6 +117,13 @@ void button_b_callback(uint gpio, uint32_t events) {
         if (buzzer_active) {
             buzzer_active = false;
             pwm_set_gpio_level(BUZZER_PIN, 0);
+
+            // Exibe a mensagem no OLED
+            ssd1306_fill(&display, false);
+            ssd1306_draw_string(&display, "Alarme", 40, 20);
+            ssd1306_draw_string(&display, "desligado", 20, 35);
+            ssd1306_draw_string(&display, "Aguarde", 30, 50);
+            ssd1306_send_data(&display);
         }
     }
 }
@@ -187,6 +207,25 @@ void desenhar_ponto(int x, int y, int cor) {
     }
 }
 
+// Função para animação final: acende os LEDs um a um na cor amarela
+void animacao_final() {
+    limpar_matriz(); // Apaga todos os LEDs da matriz
+
+    for (int i = 0; i < 25; i++) { // Itera sobre todos os LEDs da matriz
+        // Acende o LED atual na cor amarela (vermelho + verde)
+        matriz[i][0] = 15; // Vermelho
+        matriz[i][1] = 15; // Verde
+        matriz[i][2] = 0;  // Azul (desligado)
+
+        atualizar_matriz(); // Atualiza a matriz com o novo estado
+        beep(BUZZER_PIN, 500); // Toca o buzzer por 500ms
+        sleep_ms(500); // Aguarda 500ms antes de acender o próximo LED
+    }
+
+    // Desliga o buzzer após a animação
+    pwm_set_gpio_level(BUZZER_PIN, 0);
+}
+
 // Função para ler o joystick
 void ler_joystick(uint16_t *x, uint16_t *y) {
     adc_select_input(1); // Seleciona o eixo X (pino 27)
@@ -223,10 +262,11 @@ void mapear_joystick_para_matriz(uint16_t x_raw, uint16_t y_raw, int *movimento_
 
 void teste_reflexo() {
     teste_em_andamento = true;
+    int acertos = 0; // Contador de acertos
     mover_ponto_alvo(); // Move o ponto alvo para uma posição aleatória
 
     uint64_t inicio_teste = time_us_64();
-    while (true) {
+    while (acertos < 5) { // O teste termina após 5 acertos
         // Lê o joystick
         uint16_t x_raw, y_raw;
         ler_joystick(&x_raw, &y_raw);
@@ -236,9 +276,8 @@ void teste_reflexo() {
         mapear_joystick_para_matriz(x_raw, y_raw, &movimento_x, &movimento_y);
 
         // Atualiza a posição do usuário com base no joystick
-        printf("X: %d Y: %d",movimento_x,movimento_y);
         posicao_usuario_x += movimento_x;
-        posicao_usuario_y += movimento_y; // Corrigindo a inversão do eixo Y
+        posicao_usuario_y += movimento_y;
 
         // Limita a posição do usuário aos limites da matriz
         if (posicao_usuario_x < 0) posicao_usuario_x = 0;
@@ -246,9 +285,16 @@ void teste_reflexo() {
         if (posicao_usuario_y < 0) posicao_usuario_y = 0;
         if (posicao_usuario_y > 4) posicao_usuario_y = 4;
 
+        // Se o jogador alcançar o ponto alvo
+        if (posicao_usuario_x == posicao_alvo_x && posicao_usuario_y == posicao_alvo_y) {
+            acertos++;
+            printf("Acerto %d! Movendo o alvo...\n", acertos);
+            exibir_acertos(acertos); // Atualiza o display com a quantidade de acertos
+            mover_ponto_alvo(); // Move o alvo para um novo local
+        }
+
         // Limpa a matriz e desenha os pontos
         limpar_matriz();
-        
         desenhar_ponto(posicao_alvo_x, posicao_alvo_y, 0); // Desenha o ponto alvo em vermelho
         desenhar_ponto(posicao_usuario_x, posicao_usuario_y, 1); // Desenha o ponto do usuário em azul
         atualizar_matriz(); // Atualiza a matriz com os novos desenhos
@@ -256,10 +302,14 @@ void teste_reflexo() {
         sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
     }
 
+    printf("Teste finalizado!\n");
     teste_em_andamento = false;
+    button_b_pressed = false; // Garante que o botão B não fique marcado
+    tempo_definido = false; // Permite reconfigurar o tempo
+    tempo_espera = 0; // Zera o tempo configurado
+
+    animacao_final();
 }
-
-
 
 int main() {
     stdio_init_all();
@@ -299,10 +349,20 @@ int main() {
     gpio_put(LED_PIN, 0);  // Garantir que o LED esteja apagado inicialmente
 
     ssd1306_fill(&display, false);
-    ssd1306_draw_string(&display, "Pressione A p/ setar", 5, 10);
-    ssd1306_draw_string(&display, "o tempo do alarme", 10, 30);
+    ssd1306_draw_string(&display, "Pressione A", 10, 10);
+    ssd1306_draw_string(&display, "config alarme", 10, 30);
     ssd1306_send_data(&display);
 
+    while (gpio_get(BUTTON_A_PIN) || !gpio_get(BUTTON_A_PIN)) {
+        if (!gpio_get(BUTTON_A_PIN)) {  // Se o botão for pressionado (nível baixo)
+            while (!gpio_get(BUTTON_A_PIN)) {  // Espera ser solto
+                sleep_ms(50);
+            }
+            break;  // Sai do loop quando o botão for pressionado e depois solto
+        }
+        sleep_ms(50);
+    }
+        
     // Loop principal
     while (true) {
         // Modo de configuração do tempo
