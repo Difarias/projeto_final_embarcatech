@@ -20,9 +20,9 @@ A funcionalidade principal do sistema é um temporizador configurável que, ao f
 
 ## Execução
 
-### Para testar o código, siga um dos métodos abaixo:
+### Para testar o código, siga o método abaixo:
 
-1. **Usando o Wokwi (Versão VS Code):**
+1. Passo a Passo:
    - Clone o repositório do projeto e entre na pasta:
      ```sh
      git clone https://github.com/Difarias/projeto_final_embarcatech/
