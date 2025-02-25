@@ -20,7 +20,7 @@
 #define LED_PIN 13  // Pino do LED
 #define PINO_MATRIZ 7
 #define DEBOUNCE_TIME_MS 200 // Tempo de debouncing em milissegundos
-#define TEMPO_BASE 1000000 // 1 segundo por clique no botão A
+#define TEMPO_BASE 5000000 // 5 segundo por clique no botão A
 
 // Pinagem do Joystick
 #define JOYSTICK_PINO_X 27
@@ -333,7 +333,7 @@ void desenhar_ponto(int x, int y, int cor, int intensidade) {
 void alongamento_guiado() {
     // Lista de alongamentos com instruções curtas
     char *instrucoes[4] = {
-        "Levante e alongue",     // 1º exercício
+        "Se alongue",            // 1º exercício
         "Gire ombros",           // 2º exercício
         "Alongue pescoço",       // 3º exercício
         "Pisque olhos"           // 4º exercício
