@@ -70,6 +70,7 @@ void atualizar_matriz();
 void desenhar_ponto(int x, int y, int cor, int intensidade);
 void alongamento_guiado();
 void descansar_olhos();
+void animacao_piscar();
 void animacao_final();
 void ler_joystick(uint16_t *x, uint16_t *y);
 void mover_ponto_alvo();
@@ -248,6 +249,9 @@ void button_b_callback(uint gpio, uint32_t events) {
             ssd1306_draw_string(&display, "desligado", 20, 35);
             ssd1306_draw_string(&display, "Aguarde", 30, 50);
             ssd1306_send_data(&display);
+
+            // Imprime no monitor serial que o alarme foi pausado
+            printf("Alarme pausado pelo botão B\n");
         }
     }
 }
@@ -261,6 +265,8 @@ void emitir_alerta() {
 
     buzzer_active = true;
     beep(BUZZER_PIN, 15000); // Toca o buzzer
+
+    printf("Alarme emitido! Aguardando interrupção...\n");
 
     while (!button_b_pressed) {
         sleep_ms(100);
@@ -330,6 +336,21 @@ void desenhar_ponto(int x, int y, int cor, int intensidade) {
     }
 }
 
+void animacao_piscar() {
+    for (int i = 0; i < 3; i++) { // Repete a animação 3 vezes
+        limpar_matriz();
+        for (int j = 0; j < 25; j++) {
+            matriz[j][1] = 128; // Acende todos os LEDs em verde
+        }
+        atualizar_matriz();
+        sleep_ms(200); // Mantém os LEDs acesos por 200ms
+
+        limpar_matriz();
+        atualizar_matriz();
+        sleep_ms(200); // Mantém os LEDs apagados por 200ms
+    }
+}
+
 void alongamento_guiado() {
     // Lista de alongamentos com instruções curtas
     char *instrucoes[4] = {
@@ -340,21 +361,23 @@ void alongamento_guiado() {
     };
 
     for (int i = 0; i < 4; i++) {
-        // Exibe a instrução no display
-        ssd1306_fill(&display, false);
+        // Limpa o display e desenha o retângulo
+        ssd1306_fill(&display, false); // Limpa o buffer
         ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
         ssd1306_draw_string(&display, instrucoes[i], 17, 20); // Centraliza a mensagem
-        ssd1306_send_data(&display);
+        ssd1306_send_data(&display); // Envia os dados para o display
 
         // Inicia a contagem regressiva de 10 segundos
         int tempo_restante = 10;
         while (tempo_restante > 0) {
             // Atualiza o display com o tempo restante
             char msg[20];
-            snprintf(msg, sizeof(msg), "Tempo: %d s", tempo_restante);
-            ssd1306_rect(&display, 0, 30, 128, 20, false, false); // Limpa apenas a área do tempo
-            ssd1306_draw_string(&display, msg, 40, 40);
-            ssd1306_send_data(&display);
+            snprintf(msg, sizeof(msg), "Tempo: %d", tempo_restante); // Remove o "s" para evitar sobreposição
+            ssd1306_fill(&display, false); // Limpa o buffer
+            ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Redesenha o retângulo
+            ssd1306_draw_string(&display, instrucoes[i], 17, 20); // Redesenha a instrução
+            ssd1306_draw_string(&display, msg, 40, 40); // Exibe o tempo restante
+            ssd1306_send_data(&display); // Envia os dados para o display
 
             sleep_ms(1000); // Aguarda 1 segundo
             tempo_restante--; // Decrementa o tempo restante
@@ -366,11 +389,11 @@ void alongamento_guiado() {
         pwm_set_gpio_level(BUZZER_PIN, 0); // Desliga o buzzer
 
         // Exibe mensagem para confirmar o alongamento
-        ssd1306_fill(&display, false);
+        ssd1306_fill(&display, false); // Limpa o buffer
         ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
         ssd1306_draw_string(&display, "Pressione o", 20, 20);
         ssd1306_draw_string(&display, "joystick", 30, 35);
-        ssd1306_send_data(&display);
+        ssd1306_send_data(&display); // Envia os dados para o display
 
         // Aguarda a confirmação do usuário com o joystick
         bool confirmado = false;
@@ -385,6 +408,7 @@ void alongamento_guiado() {
             if (movimento_x != 0 || movimento_y != 0) {
                 confirmado = true;
                 beep(BUZZER_PIN, 200); // Feedback sonoro
+                animacao_piscar(); // Confirma na matriz de LEDs
             }
 
             sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
@@ -397,15 +421,14 @@ void alongamento_guiado() {
     }
 
     // Exibe mensagem de conclusão
-    ssd1306_fill(&display, false);
+    ssd1306_fill(&display, false); // Limpa o buffer
     ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
     ssd1306_draw_string(&display, "Alongamentos", 20, 20);
     ssd1306_draw_string(&display, "finalizados!", 20, 35);
-    ssd1306_send_data(&display);
+    ssd1306_send_data(&display); // Envia os dados para o display
     sleep_ms(2000); // Mostra a mensagem por 2 segundos
 }
 
-// Substituir a chamada da função meditacao_matriz por alongamento_guiado
 void descansar_olhos() {
     limpar_matriz();
     atualizar_matriz();
@@ -414,12 +437,12 @@ void descansar_olhos() {
 
     while (tempo_restante > 0) {
         // Atualiza o display com o tempo restante
-        ssd1306_fill(&display, false);
+        ssd1306_fill(&display, false); // Limpa o buffer
         ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
         char msg[20];
-        snprintf(msg, sizeof(msg), "Feche os olhos: %d s", tempo_restante);
+        snprintf(msg, sizeof(msg), "Feche os olhos: %d", tempo_restante); // Remove o "s" para evitar sobreposição
         ssd1306_draw_string(&display, msg, 7, 25);
-        ssd1306_send_data(&display);
+        ssd1306_send_data(&display); // Envia os dados para o display
 
         sleep_ms(1000); // Aguarda 1 segundo
         tempo_restante--; // Decrementa o tempo restante
@@ -431,11 +454,11 @@ void descansar_olhos() {
     pwm_set_gpio_level(BUZZER_PIN, 0); // Desliga o buzzer
 
     // Exibe a mensagem final e retorna ao estado inicial
-    ssd1306_fill(&display, false);
+    ssd1306_fill(&display, false); // Limpa o buffer
     ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
     ssd1306_draw_string(&display, "Pausa", 15, 20);
     ssd1306_draw_string(&display, "Concluida", 10, 35);
-    ssd1306_send_data(&display);
+    ssd1306_send_data(&display); // Envia os dados para o display
     sleep_ms(2000); // Mostra a mensagem por 2 segundos
 
     // Chama a função de alongamento guiado
@@ -500,50 +523,109 @@ void mapear_joystick_para_matriz(uint16_t x_raw, uint16_t y_raw, int *movimento_
 void teste_reflexo() {
     teste_em_andamento = true;
     int acertos = 0; // Contador de acertos
-    mover_ponto_alvo(); // Move o ponto alvo para uma posição aleatória
+    int meta_acertos = 10; // Meta de acertos
+    uint64_t tempo_limite = 30000000; // 30s 
+    bool tentar_novamente = true;
 
-    // Exibe a nova mensagem antes de iniciar o teste de reflexo
-    ssd1306_fill(&display, false);
-    ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
-    ssd1306_draw_string(&display, "Ache o", 40, 20);
-    ssd1306_draw_string(&display, "ponto vermelho", 10, 35);
-    ssd1306_send_data(&display);
+    while (tentar_novamente) {
+        acertos = 0; // Reinicia o contador de acertos
+        mover_ponto_alvo(); // Move o ponto alvo para uma posição aleatória
 
-    uint64_t inicio_teste = time_us_64();
-    while (acertos < 5) { // O teste termina após 5 acertos
-        // Lê o joystick
-        uint16_t x_raw, y_raw;
-        ler_joystick(&x_raw, &y_raw);
+        // Exibe a meta de acertos antes de iniciar o teste
+        ssd1306_fill(&display, false);
+        ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+        ssd1306_draw_string(&display, "Meta 10ac", 10, 20);
+        ssd1306_draw_string(&display, "Tempo 30s", 10, 35);
+        ssd1306_send_data(&display);
+        sleep_ms(3000); // Mostra a mensagem por 3 segundos
 
-        // Mapeia os valores do joystick para a matriz
-        int movimento_x, movimento_y;
-        mapear_joystick_para_matriz(x_raw, y_raw, &movimento_x, &movimento_y);
+        // Exibe a nova mensagem antes de iniciar o teste de reflexo
+        ssd1306_fill(&display, false);
+        ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+        ssd1306_draw_string(&display, "Ache o", 40, 20);
+        ssd1306_draw_string(&display, "ponto vermelho", 10, 35);
+        ssd1306_send_data(&display);
 
-        // Atualiza a posição do usuário com base no joystick
-        posicao_usuario_x += movimento_x;
-        posicao_usuario_y += movimento_y;
+        uint64_t inicio_teste = time_us_64();
+        while (acertos < meta_acertos && (time_us_64() - inicio_teste) < tempo_limite) {
+            // Lê o joystick
+            uint16_t x_raw, y_raw;
+            ler_joystick(&x_raw, &y_raw);
 
-        // Limita a posição do usuário aos limites da matriz
-        if (posicao_usuario_x < 0) posicao_usuario_x = 0;
-        if (posicao_usuario_x > 4) posicao_usuario_x = 4;
-        if (posicao_usuario_y < 0) posicao_usuario_y = 0;
-        if (posicao_usuario_y > 4) posicao_usuario_y = 4;
+            // Mapeia os valores do joystick para a matriz
+            int movimento_x, movimento_y;
+            mapear_joystick_para_matriz(x_raw, y_raw, &movimento_x, &movimento_y);
 
-        // Se o jogador alcançar o ponto alvo
-        if (posicao_usuario_x == posicao_alvo_x && posicao_usuario_y == posicao_alvo_y) {
-            acertos++;
-            printf("Acerto %d! Movendo o alvo...\n", acertos);
-            exibir_acertos(acertos); // Atualiza o display com a quantidade de acertos
-            mover_ponto_alvo(); // Move o alvo para um novo local
+            // Atualiza a posição do usuário com base no joystick
+            posicao_usuario_x += movimento_x;
+            posicao_usuario_y += movimento_y;
+
+            // Limita a posição do usuário aos limites da matriz
+            if (posicao_usuario_x < 0) posicao_usuario_x = 0;
+            if (posicao_usuario_x > 4) posicao_usuario_x = 4;
+            if (posicao_usuario_y < 0) posicao_usuario_y = 0;
+            if (posicao_usuario_y > 4) posicao_usuario_y = 4;
+
+            // Se o jogador alcançar o ponto alvo
+            if (posicao_usuario_x == posicao_alvo_x && posicao_usuario_y == posicao_alvo_y) {
+                acertos++;
+                printf("Acerto %d! Movendo o alvo...\n", acertos);
+                exibir_acertos(acertos); // Atualiza o display com a quantidade de acertos
+                mover_ponto_alvo(); // Move o alvo para um novo local
+            }
+
+            // Limpa a matriz e desenha os pontos
+            limpar_matriz();
+            desenhar_ponto(posicao_alvo_x, posicao_alvo_y, 0, 128); // Desenha o ponto alvo em vermelho (50% de brilho)
+            desenhar_ponto(posicao_usuario_x, posicao_usuario_y, 1, 128); // Desenha o ponto do usuário em azul (50% de brilho)
+            atualizar_matriz(); // Atualiza a matriz com os novos desenhos
+
+            sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
         }
 
-        // Limpa a matriz e desenha os pontos
-        limpar_matriz();
-        desenhar_ponto(posicao_alvo_x, posicao_alvo_y, 0, 128); // Desenha o ponto alvo em vermelho (50% de brilho)
-        desenhar_ponto(posicao_usuario_x, posicao_usuario_y, 1, 128); // Desenha o ponto do usuário em azul (50% de brilho)
-        atualizar_matriz(); // Atualiza a matriz com os novos desenhos
+        // Verifica se o jogador atingiu a meta de acertos
+        if (acertos >= meta_acertos) {
+            // Acende os LEDs da matriz em amarelo (vermelho + verde)
+            for (int i = 0; i < 25; i++) {
+                matriz[i][0] = 128; // Vermelho
+                matriz[i][1] = 128; // Verde
+                matriz[i][2] = 0;  // Azul
+            }
+            atualizar_matriz();
+            ssd1306_fill(&display, false);
+            ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+            ssd1306_draw_string(&display, "Parabens!", 30, 20);
+            ssd1306_draw_string(&display, "Meta alcancada", 10, 35);
+            ssd1306_send_data(&display);
+            sleep_ms(3000); // Mostra a mensagem por 3 segundos
+            tentar_novamente = false; // Sai do loop de tentativas
+            printf("Meta de 10 acertos alcançada!\n"); // Imprime no monitor serial
+        } else {
+            // Acende os LEDs da matriz em vermelho
+            for (int i = 0; i < 25; i++) {
+                matriz[i][0] = 128; // Vermelho
+                matriz[i][1] = 0;   // Verde
+                matriz[i][2] = 0;   // Azul
+            }
+            atualizar_matriz();
+            ssd1306_fill(&display, false);
+            ssd1306_rect(&display, 0, 0, 128, 64, true, false); // Desenha um retângulo
+            ssd1306_draw_string(&display, "Tempo esgotado!", 10, 20);
+            ssd1306_draw_string(&display, "Pressione B para", 10, 35);
+            ssd1306_draw_string(&display, "tentar novamente", 10, 50);
+            ssd1306_send_data(&display);
 
-        sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
+            // Aguarda a decisão do jogador
+            while (true) {
+                if (button_b_pressed) {
+                    button_b_pressed = false; // Reseta o estado do botão
+                    tentar_novamente = true; // Reinicia o teste
+                    printf("Reiniciando o teste de reflexo...\n"); // Imprime no monitor serial
+                    break;
+                }
+                sleep_ms(100); // Pequeno delay para evitar uso excessivo da CPU
+            }
+        }
     }
 
     printf("Teste finalizado!\n");
@@ -552,5 +634,5 @@ void teste_reflexo() {
     tempo_definido = false; // Permite reconfigurar o tempo
     tempo_espera = 0; // Zera o tempo configurado
 
-    animacao_final();
+    animacao_final(); // Chama a animação final apenas após o sucesso ou desistência
 }
