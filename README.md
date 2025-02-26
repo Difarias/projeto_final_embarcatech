@@ -18,25 +18,56 @@ A funcionalidade principal do sistema é um temporizador configurável que, ao f
 7. O sistema inicia o teste de alongamento guiado.
 8. O ciclo se repete.
 
+## Requisitos
+
+Antes de começar, você precisará de alguns itens e ferramentas:
+
+- **Placa Raspberry Pi Pico** (BitDogLab no caso do Embarcatech)
+- **Cabo micro-USB** para conexão à placa
+- **Joystick analógico** para controle
+- **LEDs** para teste e para Matriz
+- **Display OLED** (por exemplo, baseado no SSD1306)
+- **Buzzer**
+- **Ferramentas de desenvolvimento**:
+  - `git` (para clonar o repositório)
+  - `CMake` (para gerar os arquivos de compilação)
+  - `Make` (para compilar o código)
+  - `SDK do Raspberry Pi Pico` (Raspberry Pi Pico SDK)
+
 ## Execução
 
 ### Para testar o código, siga o método abaixo:
 
 1. Passo a Passo:
-   - Clone o repositório do projeto e entre na pasta:
+   - 1: Clone o repositório do projeto e entre na pasta:
      ```sh
      git clone https://github.com/Difarias/projeto_final_embarcatech/
      cd projeto_final_embarcatech/
      ```
-   - Abra o projeto no **VS Code**.
-   - Compile o código, criando a pasta `build` e gerando o binário `.uf2`.
+   - 2: Abra o projeto no **VS Code**.
      ```sh
-     mkdir build
-     cd build
-     cmake ..
-     make
+     code . 
      ```
-   - Copie o arquivo **.uf2** gerado para a placa **BitDogLab** conectada ao computador.
+   - 3: Primeiro, crie um diretório para a compilação do projeto:
+      ```bash
+      mkdir build
+      cd build
+      ```
+   - 4: Configurar o CMake
+     Dentro do diretório `build`, configure o projeto com o CMake:
+      ```bash
+      cmake ..
+      ```
+   - 5: Compilar o código
+     Agora, compile o projeto com o `make`:
+      ```bash
+      make
+      ```
+      Este comando irá gerar os arquivos de compilação necessários.
+   - 6: Carregar o código na Placa
+      Após a compilação, você precisará carregar o código na sua placa Raspberry Pi Pico. Para isso, pressione o botão **BOOTSEL** na placa enquanto a conecta ao    computador via USB. Isso fará com que a placa seja reconhecida como um dispositivo de armazenamento em massa.
+
+Copie o arquivo `.uf2` gerado pelo comando `make` para a memória da placa Raspberry Pi Pico. Após copiar o arquivo, a placa será reiniciada automaticamente e começará a executar o código.
 
 ## Demonstração - Vídeo no YouTube
 
