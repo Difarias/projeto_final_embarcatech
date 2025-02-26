@@ -42,7 +42,7 @@ A funcionalidade principal do sistema é um temporizador configurável que, ao f
 
 Para assistir a uma demonstração do projeto no YouTube, acesse o link abaixo:
 
-[![Assista no YouTube](https://img.youtube.com/vi/_Z6vgBLrJo8.jpg)](https://youtu.be/_Z6vgBLrJo8)
+[![Assista no YouTube](https://img.youtube.com/vi/_Z6vgBLrJo8/0.jpg)](https://youtu.be/_Z6vgBLrJo8)
 
 ## Agradecimentos
 
